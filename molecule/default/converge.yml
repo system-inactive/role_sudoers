@@ -1,0 +1,30 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  vars:
+    sms_sudoers_purge: true
+    sms_sudoers_rules:
+      # present + NOPASSWD + список команд
+      - name: deploy-nginx
+        rules:
+          - who: deploy
+            nopasswd: true
+            commands:
+              - /usr/bin/systemctl restart nginx
+              - /usr/bin/systemctl reload nginx
+      # present + произвольные lines + правило для группы
+      - name: admins
+        lines:
+          - "Defaults:%admins timestamp_timeout=5"
+        rules:
+          - who: "%admins"
+      # state: absent — файл ansible-legacy оставлен в prepare
+      - name: legacy
+        state: absent
+    # проверяет sms_sudoers_passwd_users — она должна ужиться с
+    # sms_sudoers_rules и с purge в одном прогоне роли
+    sms_sudoers_passwd_users:
+      - alice
+  roles:
+    - role: sms_sudoers

@@ -1,0 +1,22 @@
+---
+galaxy_info:
+  role_name: sms_sudoers
+  namespace: makarov
+  author: makarov
+  description: Управление drop-in файлами правил в /etc/sudoers.d
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+dependencies: []

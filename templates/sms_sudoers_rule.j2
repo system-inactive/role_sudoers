@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+{% for line in item.lines | default([]) %}
+{{ line }}
+{% endfor %}
+{% for r in item.rules | default([]) %}
+{%   set who = [r.who] if r.who is string else r.who %}
+{%   set cmds = r.commands | default('ALL') %}
+{%   set cmds = [cmds] if cmds is string else cmds %}
+{%   set tags = (['NOPASSWD'] if r.nopasswd | default(false) else []) + r.tags | default([]) %}
+{{ who | join(', ') }} {{ r.hosts | default('ALL') }}=({{ r.runas | default('ALL') }}) {% for t in tags %}{{ t }}: {% endfor %}{{ cmds | join(', ') }}
+{% endfor %}

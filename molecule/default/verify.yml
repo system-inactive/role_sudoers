@@ -1,0 +1,88 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  vars:
+    sms_sudoers_dir: /etc/sudoers.d
+    sms_sudoers_prefix: "ansible-"
+  tasks:
+    - name: Снять stat с созданных файлов
+      ansible.builtin.stat:
+        path: "{{ sms_sudoers_dir }}/{{ sms_sudoers_prefix }}{{ item }}"
+      loop:
+        - deploy-nginx
+        - admins
+        - alice-passwd   # из sms_sudoers_passwd_users
+      register: sms_sudoers_present_stat
+
+    - name: Файлы present-правил созданы с режимом 0440
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.mode == '0440'
+        fail_msg: >-
+          Файл {{ item.item }} не создан или имеет неверный режим
+          ({{ item.stat.mode | default('нет файла') }} вместо 0440).
+      loop: "{{ sms_sudoers_present_stat.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Прочитать deploy-nginx
+      ansible.builtin.slurp:
+        src: "{{ sms_sudoers_dir }}/{{ sms_sudoers_prefix }}deploy-nginx"
+      register: sms_sudoers_deploy
+
+    - name: Файл deploy-nginx содержит ожидаемую строку правила
+      ansible.builtin.assert:
+        that:
+          - >-
+            'deploy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart nginx, /usr/bin/systemctl reload nginx'
+            in (sms_sudoers_deploy.content | b64decode).split('\n')
+        fail_msg: "Содержимое deploy-nginx не совпадает с ожидаемым."
+
+    - name: Прочитать admins
+      ansible.builtin.slurp:
+        src: "{{ sms_sudoers_dir }}/{{ sms_sudoers_prefix }}admins"
+      register: sms_sudoers_admins
+
+    - name: Файл admins содержит и произвольную строку, и правило группы
+      ansible.builtin.assert:
+        that:
+          - "'Defaults:%admins timestamp_timeout=5' in admins_lines"
+          - "'%admins ALL=(ALL) ALL' in admins_lines"
+        fail_msg: "Содержимое admins не совпадает с ожидаемым."
+      vars:
+        admins_lines: "{{ (sms_sudoers_admins.content | b64decode).split('\n') }}"
+
+    - name: Прочитать alice-passwd
+      ansible.builtin.slurp:
+        src: "{{ sms_sudoers_dir }}/{{ sms_sudoers_prefix }}alice-passwd"
+      register: sms_sudoers_alice
+
+    - name: Файл alice-passwd сгенерирован из sms_sudoers_passwd_users верно
+      ansible.builtin.assert:
+        that:
+          - >-
+            'alice ALL=(root) NOPASSWD: /usr/bin/passwd alice'
+            in (sms_sudoers_alice.content | b64decode).split('\n')
+        fail_msg: "Содержимое alice-passwd не совпадает с ожидаемым."
+
+    - name: Снять stat с файлов, которые должны отсутствовать
+      ansible.builtin.stat:
+        path: "{{ sms_sudoers_dir }}/{{ item }}"
+      loop:
+        - ansible-legacy   # удалён по state=absent
+        - ansible-orphan   # удалён purge
+      register: sms_sudoers_absent_stat
+
+    - name: Файлы absent и purge удалены
+      ansible.builtin.assert:
+        that: not item.stat.exists
+        fail_msg: "Файл {{ item.item }} должен был быть удалён, но существует."
+      loop: "{{ sms_sudoers_absent_stat.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Итоговая конфигурация sudo валидна
+      ansible.builtin.command: visudo -c
+      changed_when: false
