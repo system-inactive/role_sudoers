@@ -1,5 +1,4 @@
 ---
 collections:
-  - name: community.docker
   - name: community.general
     version: ">=13.1.0"

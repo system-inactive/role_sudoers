@@ -3,28 +3,28 @@
   hosts: all
   become: true
   vars:
-    sms_sudoers_purge: true
     sms_sudoers_rules:
-      # present + NOPASSWD + список команд
+      # present + NOPASSWD + список команд, runas по умолчанию модуля (root)
       - name: deploy-nginx
-        rules:
-          - who: deploy
-            nopasswd: true
-            commands:
-              - /usr/bin/systemctl restart nginx
-              - /usr/bin/systemctl reload nginx
-      # present + произвольные lines + правило для группы
+        user: deploy
+        nopassword: true
+        commands:
+          - /usr/bin/systemctl restart nginx
+          - /usr/bin/systemctl reload nginx
+      # present + defaults (Defaults:...) + правило для группы, требует пароль
       - name: admins
-        lines:
-          - "Defaults:%admins timestamp_timeout=5"
-        rules:
-          - who: "%admins"
-      # state: absent — файл ansible-legacy оставлен в prepare
-      - name: legacy
+        group: admins
+        commands: ALL
+        defaults:
+          - "timestamp_timeout=5"
+      # сменить свой пароль без запроса пароля sudo
+      - name: alice-passwd
+        user: alice
+        runas: root
+        nopassword: true
+        commands: /usr/bin/passwd alice
+      # state: absent — не должно создать файл
+      - name: old-rule
         state: absent
-    # проверяет sms_sudoers_passwd_users — она должна ужиться с
-    # sms_sudoers_rules и с purge в одном прогоне роли
-    sms_sudoers_passwd_users:
-      - alice
   roles:
     - role: sms_sudoers

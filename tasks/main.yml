@@ -1,126 +1,33 @@
 ---
-# Частый случай — "пользователь может сменить свой пароль без пароля sudo" —
-# не требует от вызывающего плейбука знать формат sms_sudoers_rules и городить
-# цикл на include_role: достаточно списка имён в sms_sudoers_passwd_users,
-# а полноценные правила role строит сама и добавляет к sms_sudoers_rules —
-# дальше они идут по общему пути (validate/purge/template) вместе с любыми
-# вручную заданными правилами.
-- name: Развернуть sms_sudoers_passwd_users в правила sms_sudoers_rules
-  ansible.builtin.set_fact:
-    sms_sudoers_rules: "{{ sms_sudoers_rules + [sms_sudoers_generated_rule] }}"
-  vars:
-    sms_sudoers_generated_rule:
-      name: "{{ item }}-passwd"
-      rules:
-        - who: "{{ item }}"
-          runas: root
-          nopasswd: true
-          commands: "/usr/bin/passwd {{ item }}"
-  loop: "{{ sms_sudoers_passwd_users }}"
-  loop_control:
-    label: "{{ item }}"
-
-- name: Проверить, что имена файлов правил не повторяются
-  ansible.builtin.assert:
-    that: >-
-      sms_sudoers_rules | map(attribute='name') | list | length
-      == sms_sudoers_rules | map(attribute='name') | unique | list | length
-    fail_msg: >-
-      В sms_sudoers_rules/sms_sudoers_passwd_users есть повторяющиеся имена
-      файлов — возможно, один и тот же пользователь указан в обоих местах.
-    quiet: true
-
-- name: Проверить параметры правил
-  ansible.builtin.assert:
-    that:
-      - item.name is defined
-      - item.name is match('^[A-Za-z0-9_-]+$')
-      - (item.state | default('present')) in ['present', 'absent']
-      - >-
-        (item.state | default('present')) == 'absent'
-        or (item.rules | default([]) | length > 0)
-        or (item.lines | default([]) | length > 0)
-    fail_msg: >-
-      Некорректное правило '{{ item.name | default('без имени') }}':
-      нужно имя из букв, цифр, '_' и '-', state present/absent
-      и хотя бы одно из rules/lines.
-    quiet: true
-  loop: "{{ sms_sudoers_rules }}"
-  loop_control:
-    label: "{{ item.name | default('?') }}"
-
-# Без who шаблон падал бы с невнятным "'who' is undefined" уже на рендере
-# файла. Ловим это заранее понятным сообщением.
-- name: Проверить, что у каждой записи rules задан непустой who
-  ansible.builtin.assert:
-    that:
-      - item.rules | default([]) | selectattr('who', 'undefined') | list | length == 0
-      - item.rules | default([])
-        | selectattr('who', 'defined')
-        | selectattr('who', 'string')
-        | selectattr('who', 'equalto', '')
-        | list | length == 0
-    fail_msg: >-
-      В правиле '{{ item.name | default('без имени') }}' есть запись rules
-      без непустого who — укажите пользователя, %группу или список.
-    quiet: true
-  loop: "{{ sms_sudoers_rules }}"
-  loop_control:
-    label: "{{ item.name | default('?') }}"
-
-- name: Проверить настройки purge
-  ansible.builtin.assert:
-    that: sms_sudoers_prefix | length > 0
-    fail_msg: "sms_sudoers_purge требует непустой sms_sudoers_prefix"
-    quiet: true
-  when: sms_sudoers_purge
-
 - name: Установить sudo
   ansible.builtin.package:
     name: sudo
     state: present
   when: sms_sudoers_install_sudo
 
-- name: Создать файлы правил
-  ansible.builtin.template:
-    src: sms_sudoers_rule.j2
-    dest: "{{ sms_sudoers_dir }}/{{ sms_sudoers_prefix }}{{ item.name }}"
-    owner: root
-    group: root
-    mode: "0440"
-    validate: "visudo -cf %s"
+# Поля user/host/runas/commands/setenv/noexec/defaults берутся из элемента
+# как есть и передаются модулю без изменений; если поле не задано в
+# элементе, используется значение по умолчанию самого модуля.
+# nopassword — исключение: по умолчанию false (у модуля — true, т.е.
+# passwordless), чтобы пароль требовался, пока не указано обратное.
+- name: Применить правила sudo
+  community.general.sudoers:
+    name: "{{ item.name }}"
+    state: "{{ item.state | default('present') }}"
+    sudoers_path: "{{ sms_sudoers_dir }}"
+    validation: required
+    user: "{{ item.user | default(omit) }}"
+    group: "{{ item.group | default(omit) }}"
+    commands: "{{ item.commands | default(omit) }}"
+    host: "{{ item.host | default(omit) }}"
+    runas: "{{ item.runas | default(omit) }}"
+    nopassword: "{{ item.nopassword | default(false) }}"
+    setenv: "{{ item.setenv | default(omit) }}"
+    noexec: "{{ item.noexec | default(omit) }}"
+    defaults: "{{ item.defaults | default(omit) }}"
   loop: "{{ sms_sudoers_rules }}"
   loop_control:
-    label: "{{ item.name }}"
-  when: (item.state | default('present')) == 'present'
-
-- name: Удалить файлы правил со state absent
-  ansible.builtin.file:
-    path: "{{ sms_sudoers_dir }}/{{ sms_sudoers_prefix }}{{ item.name }}"
-    state: absent
-  loop: "{{ sms_sudoers_rules }}"
-  loop_control:
-    label: "{{ item.name }}"
-  when: (item.state | default('present')) == 'absent'
-
-- name: Найти управляемые ролью файлы
-  ansible.builtin.find:
-    paths: "{{ sms_sudoers_dir }}"
-    patterns: "{{ sms_sudoers_prefix }}*"
-  register: sms_sudoers_found
-  when: sms_sudoers_purge
-
-- name: Удалить файлы, которых нет в sms_sudoers_rules
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: absent
-  loop: >-
-    {{ sms_sudoers_found.files | map(attribute='path') | list
-       | difference(sms_sudoers_rules
-                    | map(attribute='name')
-                    | map('regex_replace', '^', sms_sudoers_dir ~ '/' ~ sms_sudoers_prefix)
-                    | list) }}
-  when: sms_sudoers_purge
+    label: "{{ item.name | default('?') }}"
 
 - name: Проверить итоговую конфигурацию sudo
   ansible.builtin.command: visudo -c

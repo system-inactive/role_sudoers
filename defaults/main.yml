@@ -1,40 +1,18 @@
 ---
-# Каталог с drop-in файлами sudo
+# Каталог с drop-in файлами sudo (sudoers_path модуля)
 sms_sudoers_dir: /etc/sudoers.d
 
-# Префикс имён файлов, которыми управляет роль.
-# Нужен, чтобы purge не трогал чужие файлы.
-sms_sudoers_prefix: "ansible-"
-
-# Установить пакет sudo, если его нет
+# Установить пакет sudo (и visudo), если его нет
 sms_sudoers_install_sudo: true
 
-# Удалять файлы с префиксом sms_sudoers_prefix, которых нет в sms_sudoers_rules
-sms_sudoers_purge: false
-
-# Список файлов с правилами. Формат элемента:
+# Список правил — параметры модуля community.general.sudoers как есть:
+# name (обязательно, это же имя файла), user ИЛИ group, commands, state,
+# и необязательные host/runas/nopassword/setenv/noexec/defaults.
+# https://docs.ansible.com/ansible/latest/collections/community/general/sudoers_module.html
 #
-# - name: alice-passwd        # имя файла (без точек и "~"), обязательно
-#   state: present            # present | absent (по умолчанию present)
-#   rules:
-#     - who: alice            # пользователь, %группа или список
-#       hosts: ALL            # по умолчанию ALL
-#       runas: root           # по умолчанию ALL
-#       nopasswd: true        # по умолчанию false
-#       tags: [SETENV]        # дополнительные теги, необязательно
-#       commands:             # строка или список, по умолчанию ALL
-#         - /usr/bin/passwd alice
-#   lines:                    # произвольные строки как есть, необязательно
-#     - "Defaults:alice timestamp_timeout=5"
+# - name: alice-passwd
+#   user: alice
+#   runas: root
+#   nopassword: true
+#   commands: /usr/bin/passwd alice
 sms_sudoers_rules: []
-
-# Список пользователей, которым нужно только одно типовое правило: сменить
-# свой пароль без запроса пароля sudo. Проще sms_sudoers_rules для этого
-# частого случая — не нужно вручную расписывать who/name/commands, роль
-# сама превращает каждое имя в такой файл:
-#
-#   <user> ALL=(root) NOPASSWD: /usr/bin/passwd <user>
-#
-# Для остальных правил используйте sms_sudoers_rules — оба списка
-# обрабатываются вместе (одна и та же валидация, purge, идемпотентность).
-sms_sudoers_passwd_users: []
